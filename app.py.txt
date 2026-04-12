@@ -1,0 +1,40 @@
+import streamlit as st
+import fitz  # PyMuPDF
+import genanki
+import os
+
+# 안키 카드 양식 설정
+model_id = 1607392319
+my_model = genanki.Model(
+    model_id,
+    'Med_IO_Template',
+    fields=[{'name': 'Image'}],
+    templates=[{'name': 'Card 1', 'qfmt': '{{Image}}', 'afmt': '{{FrontSide}}'}]
+)
+
+st.title("의대생용 초간단 안키 생성기")
+uploaded_file = st.file_uploader("PDF 파일을 올려주세요", type="pdf")
+
+if uploaded_file:
+    doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
+    # 파일명을 덱 이름으로 사용 (예: Ch 8 Protein Processing [cite: 17])
+    deck_name = uploaded_file.name.replace(".pdf", "")
+    my_deck = genanki.Deck(20260413, deck_name)
+    media_files = []
+
+    for i in range(len(doc)):
+        page = doc.load_page(i)
+        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+        img_name = f"p{i}.png"
+        pix.save(img_name)
+        media_files.append(img_name)
+        
+        my_note = genanki.Note(model=my_model, fields=[f'<img src="{img_name}">'])
+        my_deck.add_note(my_note)
+
+    package = genanki.Package(my_deck)
+    package.media_files = media_files
+    package.write_to_file('output.apkg')
+
+    with open("output.apkg", "rb") as f:
+        st.download_button("안키 덱(.apkg) 다운로드", f, file_name=f"{deck_name}.apkg")
