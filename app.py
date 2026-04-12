@@ -4,91 +4,81 @@ import genanki
 import os
 import uuid
 
-# 1. 안키 순정(Native) Image Occlusion 모델 규격 정의
-# 안키 23.10+ 버전이 인식하는 5개 필드와 순서를 엄격히 준수합니다.
-IO_MODEL_ID = 1607392319
+# 1. 사용자님 안키 고유 정보 (Model ID & Fields)
+# 확인하신 ID와 5개 필드 구성을 엄격히 준수합니다.
+IO_MODEL_ID = 1740279848975 
 IO_MODEL = genanki.Model(
     IO_MODEL_ID,
-    'Image Occlusion', # 모델 이름을 순정과 동일하게 설정
+    'Image Occlusion', # 안키 내 모델 이름
     fields=[
-        {'name': 'ID (Hidden)'},
-        {'name': 'Image'},
-        {'name': 'Header'},
-        {'name': 'Footer'},
-        {'name': 'Occlusions (JSON)'},
+        {'name': 'Occlusion'},    # 1번: 상자 정보(JSON) 및 고유 식별자
+        {'name': 'Image'},        # 2번: 강의록 이미지
+        {'name': 'Header'},       # 3번: 제목 및 페이지
+        {'name': 'Back Extra'},   # 4번: 뒷면 추가 설명
+        {'name': 'Comments'},     # 5번: 기타 메모
     ],
     templates=[
         {
             'name': 'Image Occlusion',
-            'qfmt': '<div id="io-header">{{Header}}</div><div id="io-wrapper">{{Image}}</div><div id="io-footer">{{Footer}}</div>',
-            'afmt': '<div id="io-header">{{Header}}</div><div id="io-wrapper">{{Image}}</div><hr id="answer"><div id="io-footer">{{Footer}}</div>',
+            'qfmt': '<div id="io-header">{{Header}}</div><div id="io-wrapper">{{Image}}</div>',
+            'afmt': '<div id="io-header">{{Header}}</div><div id="io-wrapper">{{Image}}</div><hr>{{Back Extra}}<br>{{Comments}}',
         },
     ],
-    css="""
-    .card { font-family: arial; font-size: 20px; text-align: center; color: black; background-color: white; }
-    #io-wrapper { position: relative; display: inline-block; }
-    img { max-width: 100%; height: auto; }
-    """
+    css=".card { font-family: arial; font-size: 20px; text-align: center; color: black; background-color: white; } img { max-width: 100%; height: auto; }"
 )
 
-st.set_page_config(page_title="의대생용 안키 IO 생성기", layout="centered")
-st.title("🩺 완결판: 안키 IO 자동 생성기")
-st.info("PDF를 업로드하면 즉시 '이미지 가리기' 편집이 가능한 덱을 생성합니다.")
+st.set_page_config(page_title="CMC 본과생 전용 IO 생성기", layout="centered")
+st.title("🩺 하이패스: 100% 동기화 생성기")
+st.success(f"현재 설정된 모델 ID: {IO_MODEL_ID}")
 
-uploaded_file = st.file_uploader("강의록 PDF 선택 (예: Ch 8 단백질 가공)", type="pdf")
+uploaded_file = st.file_uploader("강의록 PDF 선택", type="pdf")
 
 if uploaded_file:
-    with st.spinner('안키 규격에 맞춰 제작 중...'):
-        # PDF 처리 시작 [cite: 2, 3]
+    with st.spinner('사용자님의 안키 양식에 맞춰 카드를 제작 중입니다...'):
         doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
         base_name = os.path.splitext(uploaded_file.name)[0]
         
-        # 덱 ID 생성 (파일별로 고유하게)
-        deck_id = abs(hash(base_name)) % (10 ** 10)
-        my_deck = genanki.Deck(deck_id, base_name)
-        
+        # 덱 생성 (충돌 방지를 위해 파일명 기반 ID 생성)
+        my_deck = genanki.Deck(abs(hash(base_name)) % (10 ** 10), base_name)
         media_files = []
         
         for i in range(len(doc)):
             page = doc.load_page(i)
-            # 고해상도 이미지 추출 (지엽적 도표 대비) [cite: 74-77, 150-182]
+            # 고해상도 처리 (이미지 가리기 시 디테일 확보)
             pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
             
-            # 고유 파일명 생성
             img_filename = f"med_io_{uuid.uuid4().hex[:10]}.png"
             pix.save(img_filename)
             media_files.append(img_filename)
             
-            # 안키 순정 IO 필드 구조에 데이터 주입
-            # 1. ID (Hidden), 2. Image, 3. Header, 4. Footer, 5. Occlusions (JSON)
+            # 사용자님의 5개 필드 순서에 맞춰 데이터 주입
+            # 1. Occlusion: 고유 ID 부여 (중복 방지용)
+            # 2. Image: <img> 태그
+            # 3. Header: 강의록 이름과 페이지
+            # 4. Back Extra: 빈칸
+            # 5. Comments: 빈칸
             note = genanki.Note(
                 model=IO_MODEL,
                 fields=[
-                    str(uuid.uuid4()), 
-                    f'<img src="{img_filename}">', 
-                    f"{base_name} - Page {i+1}", 
-                    "", 
-                    ""
+                    str(uuid.uuid4()),            # 1. Occlusion
+                    f'<img src="{img_filename}">', # 2. Image
+                    f"{base_name} - P.{i+1}",      # 3. Header
+                    "",                            # 4. Back Extra
+                    ""                             # 5. Comments
                 ]
             )
             my_deck.add_note(note)
             
-        # 안키 패키지 생성
+        # 패키징 및 파일 생성
         package = genanki.Package(my_deck)
         package.media_files = media_files
-        output_filename = "anki_io_bundle.apkg"
+        output_filename = "anki_sync_ready.apkg"
         package.write_to_file(output_filename)
         
-        # 다운로드 버튼
         with open(output_filename, "rb") as f:
-            st.download_button(
-                label="📥 안키 덱 다운로드",
-                data=f,
-                file_name=f"{base_name}_Ready.apkg",
-                mime="application/octet-stream"
-            )
+            st.download_button("📥 즉시 편집 가능 덱 다운로드", f, file_name=f"{base_name}_Ready.apkg")
             
-        # 서버 임시 파일 청소
+        # 임시 파일 삭제
         for f in media_files:
             if os.path.exists(f): os.remove(f)
         if os.path.exists(output_filename): os.remove(output_filename)
