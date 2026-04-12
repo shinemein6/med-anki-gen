@@ -1,40 +1,26 @@
-import streamlit as st
-import fitz  # PyMuPDF
-import genanki
-import os
-
-# 안키 카드 양식 설정
+# 1. 안키 순정 Image Occlusion 양식과 동일하게 필드 구성
 model_id = 1607392319
 my_model = genanki.Model(
     model_id,
-    'Med_IO_Template',
-    fields=[{'name': 'Image'}],
-    templates=[{'name': 'Card 1', 'qfmt': '{{Image}}', 'afmt': '{{FrontSide}}'}]
+    'Image Occlusion', # 이름을 안키 기본형과 일치시킴
+    fields=[
+        {'name': 'ID (Hidden)'}, # 안키 내부 식별용
+        {'name': 'Image'},       # 실제 강의록 이미지 [cite: 17]
+        {'name': 'Header'},      # 제목 (예: Ch 8) 
+        {'name': 'Footer'},
+        {'name': 'Occlusions (JSON)'}, # 상자 정보가 저장될 곳
+    ],
+    templates=[{
+        'name': 'Image Occlusion',
+        'qfmt': '{{Image}}',
+        'afmt': '{{Image}}<hr>{{Header}}',
+    }]
 )
 
-st.title("의대생용 초간단 안키 생성기")
-uploaded_file = st.file_uploader("PDF 파일을 올려주세요", type="pdf")
+# ... 중략 ...
 
-if uploaded_file:
-    doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
-    # 파일명을 덱 이름으로 사용 (예: Ch 8 Protein Processing [cite: 17])
-    deck_name = uploaded_file.name.replace(".pdf", "")
-    my_deck = genanki.Deck(20260413, deck_name)
-    media_files = []
-
-    for i in range(len(doc)):
-        page = doc.load_page(i)
-        pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-        img_name = f"p{i}.png"
-        pix.save(img_name)
-        media_files.append(img_name)
-        
-        my_note = genanki.Note(model=my_model, fields=[f'<img src="{img_name}">'])
-        my_deck.add_note(my_note)
-
-    package = genanki.Package(my_deck)
-    package.media_files = media_files
-    package.write_to_file('output.apkg')
-
-    with open("output.apkg", "rb") as f:
-        st.download_button("안키 덱(.apkg) 다운로드", f, file_name=f"{deck_name}.apkg")
+# 카드 생성 시 빈 필드값 채워주기
+my_note = genanki.Note(
+    model=my_model, 
+    fields=[str(uuid.uuid4()), f'<img src="{img_name}">', deck_name, '', '']
+)
