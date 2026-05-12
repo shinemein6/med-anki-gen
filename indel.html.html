@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF N-up (모아찍기) 생성기</title>
+    <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+    <style>
+        body { font-family: sans-serif; line-height: 1.6; padding: 20px; max-width: 800px; margin: 0 auto; background-color: #f4f7f6; }
+        .card { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; margin-bottom: 20px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; }
+        input, select { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        button { background-color: #4CAF50; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; width: 100%; font-size: 16px; margin-top: 10px; }
+        button:hover { background-color: #45a049; }
+        #status { margin-top: 20px; padding: 15px; border-radius: 4px; display: none; }
+        .success { background-color: #dff0d8; color: #3c763d; }
+        .error { background-color: #f2dede; color: #a94442; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h1>PDF 모아찍기 생성기</h1>
+    <p>PDF 파일을 업로드하고 한 페이지에 배치할 격자 크기를 설정하세요.</p>
+    
+    <div class="form-group">
+        <label for="pdfInput">PDF 파일 선택</label>
+        <input type="file" id="pdfInput" accept="application/pdf">
+    </div>
+
+    <div style="display: flex; gap: 10px;">
+        <div class="form-group" style="flex: 1;">
+            <label for="cols">가로 개수 (a)</label>
+            <input type="number" id="cols" value="2" min="1">
+        </div>
+        <div class="form-group" style="flex: 1;">
+            <label for="rows">세로 개수 (b)</label>
+            <input type="number" id="rows" value="2" min="1">
+        </div>
+    </div>
+
+    <div class="form-group">
+        <label for="direction">배치 순서</label>
+        <select id="direction">
+            <option value="horizontal">가로 우선 (좌 → 우, 위 → 아래)</option>
+            <option value="vertical">세로 우선 (위 → 아래, 좌 → 우)</option>
+        </select>
+    </div>
+
+    <button onclick="processPdf()">변환 및 다운로드</button>
+    <div id="status"></div>
+</div>
+
+<script>
+    async function processPdf() {
+        const fileInput = document.getElementById('pdfInput');
+        const cols = parseInt(document.getElementById('cols').value);
+        const rows = parseInt(document.getElementById('rows').value);
+        const direction = document.getElementById('direction').value;
+        const statusDiv = document.getElementById('status');
+
+        if (!fileInput.files[0]) {
+            showStatus('파일을 선택해주세요.', 'error');
+            return;
+        }
+
+        showStatus('처리 중입니다... 잠시만 기다려주세요.', 'success');
+
+        try {
+            const arrayBuffer = await fileInput.files[0].arrayBuffer();
+            const srcDoc = await PDFLib.PDFDocument.load(arrayBuffer);
+            const outDoc = await PDFLib.PDFDocument.create();
+            
+            const srcPages = srcDoc.getPages();
+            const embeddedPages = await outDoc.embedPages(srcPages);
+            
+            const itemsPerPage = cols * rows;
+            const pageSize = PDFLib.PageSizes.A4; // 기본 출력 크기: A4
+            const [W, H] = pageSize;
+
+            const cellW = W / cols;
+            const cellH = H / rows;
+
+            let currentPage;
+
+            for (let i = 0; i < embeddedPages.length; i++) {
+                // 새 페이지 추가 시점 결정
+                if (i % itemsPerPage === 0) {
+                    currentPage = outDoc.addPage(pageSize);
+                }
+
+                const localIndex = i % itemsPerPage;
+                let r, c;
+
+                if (direction === 'horizontal') {
+                    r = Math.floor(localIndex / cols); // 행
+                    c = localIndex % cols;             // 열
+                } else {
+                    c = Math.floor(localIndex / rows); // 열
+                    r = localIndex % rows;             // 행
+                }
+
+                const embPage = embeddedPages[i];
+                const { width: origW, height: origH } = embPage;
+
+                // 1. 스케일 계산 (가장 작은 비율 적용하여 잘림 방지)
+                const scale = Math.min(cellW / origW, cellH / origH);
+                const drawW = origW * scale;
+                const drawH = origH * scale;
+
+                // 2. 좌표 계산 (중앙 정렬 포함)
+                const x = (c * cellW) + (cellW - drawW) / 2;
+                // PDF 좌표계는 아래가 0이므로 위에서부터 배치하려면 역산 필요
+                const y = H - ((r + 1) * cellH) + (cellH - drawH) / 2;
+
+                currentPage.drawPage(embPage, {
+                    x: x,
+                    y: y,
+                    width: drawW,
+                    height: drawH,
+                });
+            }
+
+            const pdfBytes = await outDoc.save();
+            download(pdfBytes, "n-up-result.pdf", "application/pdf");
+            showStatus('변환이 완료되었습니다!', 'success');
+
+        } catch (err) {
+            console.error(err);
+            showStatus('오류가 발생했습니다: ' + err.message, 'error');
+        }
+    }
+
+    function showStatus(msg, type) {
+        const statusDiv = document.getElementById('status');
+        statusDiv.style.display = 'block';
+        statusDiv.innerText = msg;
+        statusDiv.className = type;
+    }
+
+    function download(data, filename, type) {
+        const file = new Blob([data], { type: type });
+        const a = document.createElement("a");
+        const url = URL.createObjectURL(file);
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+        }, 0);
+    }
+</script>
+
+</body>
+</html>
